@@ -101,7 +101,7 @@ func ToKml(in io.Reader, out io.Writer) error {
 			"<Placemark>"+
 				"<name>%s</name>"+
 				"<styleUrl>#flower-style-%d</styleUrl>"+
-				"<description><![CDATA[<p>stade : %s</p><p>俗名 : %s</p><p>var. %sm</p>]]></description>"+
+				"<description><![CDATA[<p>stade : %s</p><p>俗名 : %s</p><p>var. %s</p>]]></description>"+
 				"<Point>"+
 				"<coordinates>%s, %s</coordinates>"+
 				"</Point>"+
