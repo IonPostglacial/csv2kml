@@ -1,26 +1,64 @@
 package main
 
 import (
-	"encoding/csv"
 	"flag"
 	"fmt"
 	"io"
 	"log"
+	"net/http"
+	"nicolas.galipot.net/csv2kml/csv"
 	"os"
 	"strings"
 )
 
-const (
-	COL_SCI_NAME      = 14
-	COL_CIRCUMFERENCE = 17
-	COL_HEIGHT        = 18
-	COL_STAGE         = 19
-	COL_COORDS        = 21
-)
+const MAX_UPLOAD_SIZE = 10000 * 1024
+
+func serveConverted(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := r.ParseMultipartForm(MAX_UPLOAD_SIZE); err != nil {
+		http.Error(w, err.Error(), http.StatusExpectationFailed)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, MAX_UPLOAD_SIZE)
+	file, _, err := r.FormFile("input-file")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusExpectationFailed)
+		return
+	}
+	defer file.Close()
+	var b strings.Builder
+	if err := csv.ToKml(file, &b); err != nil {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprintf(w, "<!DOCTYPE html><html><body>Error parsing the CSV: %q <a href='/'>Retry</a></body></html>", err)
+		return
+	}
+	w.Header().Set("Content-Disposition", "attachment; filename=output.kmz")
+	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+	io.Copy(w, strings.NewReader(b.String()))
+}
+
+func serveGui(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, `<!DOCTYPE html><html><body><form method="POST" action="/convert" enctype="multipart/form-data">File to convert<input type="file" name="input-file"><button>Convert</button></form></body></html>`)
+}
 
 func main() {
+	serveFs := flag.NewFlagSet("serve", flag.ExitOnError)
+	host := serveFs.String("host", "localhost", "The host name.")
+	port := serveFs.String("port", "8080", "The port to listen.")
+	if os.Args[1] == "serve" {
+		serveFs.Parse(os.Args[2:])
+		http.HandleFunc("/convert", serveConverted)
+		http.HandleFunc("/", serveGui)
+		http.ListenAndServe(*host+":"+*port, nil)
+		return
+	}
 	input := flag.String("in", "input.csv", "The CSV file to convert.")
-	output := flag.String("out", "output.kml", "The KML file to output.")
+	output := flag.String("out", "output.kmz", "The KMZ file to output.")
+	flag.Parse()
 	in, err := os.Open(*input)
 	if err != nil {
 		log.Fatalf("Cannot open file '%s'", *input)
@@ -31,36 +69,7 @@ func main() {
 		log.Fatalf("Cannot create file '%s'", *output)
 	}
 	defer out.Close()
-	reader := csv.NewReader(in)
-	reader.Comma = ';'
-	head := `<?xml version="1.0" encoding="UTF-8"?>
-	<kml xmlns="http://www.opengis.net/kml/2.2">
-		<Document>
-			<name>Les arbres</name>
-			<description/>
-			<Folder>
-				<name>Les arbres</name>`
-	tail := `
-			</Folder>
-		</Document>
-	</kml>`
-	out.WriteString(head)
-	for rec, err := reader.Read(); err != io.EOF; rec, err = reader.Read() {
-		coords := strings.Split(rec[COL_COORDS], ",")
-		if len(coords) != 2 {
-			continue
-		}
-		out.WriteString(fmt.Sprintf(
-			"<Placemark>"+
-				"<name>%s</name>"+
-				"<description><![CDATA[<p>stade : %s</p><p>circonférence : %scm</p><p>hauteur : %sm</p>]]></description>"+
-				"<Point>"+
-				"<coordinates>"+
-				"%s, %s"+
-				"</coordinates>"+
-				"</Point>"+
-				"</Placemark>",
-			rec[COL_SCI_NAME], rec[COL_STAGE], rec[COL_CIRCUMFERENCE], rec[COL_HEIGHT], coords[1], coords[0]))
+	if err := csv.ToKml(in, out); err != nil {
+		log.Fatal(err)
 	}
-	out.WriteString(tail)
 }
