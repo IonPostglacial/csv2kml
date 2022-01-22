@@ -6,9 +6,11 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"nicolas.galipot.net/csv2kml/csv"
 	"os"
 	"strings"
+	"unicode/utf8"
+
+	"nicolas.galipot.net/csv2kml/csv"
 )
 
 const MAX_UPLOAD_SIZE = 10000 * 1024
@@ -30,10 +32,14 @@ func serveConverted(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 	var b strings.Builder
-	if err := csv.ToKml(file, &b); err != nil {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprintf(w, "<!DOCTYPE html><html><body>Error parsing the CSV: %q <a href='/'>Retry</a></body></html>", err)
-		return
+	if err := csv.ToKml(file, &b, ';'); err != nil {
+		b = strings.Builder{}
+		file.Seek(0, io.SeekStart)
+		if err = csv.ToKml(file, &b, ','); err != nil {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			fmt.Fprintf(w, "<!DOCTYPE html><html><body>Error parsing the CSV: %q <a href='/'>Retry</a></body></html>", err)
+			return
+		}
 	}
 	w.Header().Set("Content-Disposition", "attachment; filename=output.kmz")
 	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
@@ -58,6 +64,7 @@ func main() {
 	}
 	input := flag.String("in", "input.csv", "The CSV file to convert.")
 	output := flag.String("out", "output.kmz", "The KMZ file to output.")
+	comma := flag.String("sep", ";", "The CSV separator.")
 	flag.Parse()
 	in, err := os.Open(*input)
 	if err != nil {
@@ -69,7 +76,11 @@ func main() {
 		log.Fatalf("Cannot create file '%s'", *output)
 	}
 	defer out.Close()
-	if err := csv.ToKml(in, out); err != nil {
+	r, size := utf8.DecodeRuneInString(*comma)
+	if size != 1 {
+		log.Fatal("The sep argument should contain a single character.")
+	}
+	if err := csv.ToKml(in, out, r); err != nil {
 		log.Fatal(err)
 	}
 }

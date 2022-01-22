@@ -15,15 +15,21 @@ import (
 )
 
 const (
-	COL_CN_NAME       = 9
-	COL_FAMILY        = 10
-	COL_SCI_NAME      = 14
-	COL_VARIETY       = 16
-	COL_CIRCUMFERENCE = 17
-	COL_HEIGHT        = 18
-	COL_STAGE         = 19
-	COL_COORDS        = 21
+	ColNameCn = iota
+	ColNameSci
+	ColVariety
+	ColStage
+	ColCoords
+	ColNumber
 )
+
+var columnNames = []string{
+	"俗名",
+	"Nom scientifique",
+	"VARIETE OUCULTIVAR",
+	"STADE DE DEVELOPPEMENT",
+	"geo_point_2d",
+}
 
 var iconColor color.NRGBA = color.NRGBA{226, 76, 75, 255}
 
@@ -41,9 +47,6 @@ type RecoloredImage struct {
 
 func (img *RecoloredImage) At(x, y int) color.Color {
 	baseColor := img.Image.At(x, y)
-	if x == 13 && y == 40 {
-		fmt.Printf("one: %T\n two: %T\ncmp: %+v\n", baseColor, iconColor, baseColor == iconColor)
-	}
 	if baseColor == iconColor {
 		return img.color
 	}
@@ -53,13 +56,13 @@ func (img *RecoloredImage) At(x, y int) color.Color {
 //go:embed res/flower.png
 var flowerIcon []byte
 
-var InvalidCsvError = errors.New("The CSV file is invalid.")
+var ErrInvalidCsv = errors.New("the CSV file is invalid")
 
-func ToKml(in io.Reader, out io.Writer) error {
+func ToKml(in io.Reader, out io.Writer, comma rune) error {
 	paletteIndex := 0
 	colorsByFamily := map[string]color.RGBA{}
 	reader := csv.NewReader(in)
-	reader.Comma = ';'
+	reader.Comma = comma
 	head := `<?xml version="1.0" encoding="UTF-8"?>
 	<kml xmlns="http://www.opengis.net/kml/2.2">
 		<Document>
@@ -72,6 +75,11 @@ func ToKml(in io.Reader, out io.Writer) error {
 	</kml>`
 	w := zip.NewWriter(out)
 	doc, err := w.Create("doc.kml")
+	isHeader := true
+	colIndices := make([]int, ColNumber)
+	for i := range colIndices {
+		colIndices[i] = -1
+	}
 	if err != nil {
 		return err
 	}
@@ -80,14 +88,37 @@ func ToKml(in io.Reader, out io.Writer) error {
 		return err
 	}
 	for rec, err := reader.Read(); err != io.EOF; rec, err = reader.Read() {
-		if len(rec) < 22 {
-			return InvalidCsvError
+		if isHeader {
+			for i, colName := range rec {
+				switch colName {
+				case columnNames[ColNameCn]:
+					colIndices[ColNameCn] = i
+				case columnNames[ColNameSci]:
+					colIndices[ColNameSci] = i
+				case columnNames[ColVariety]:
+					colIndices[ColVariety] = i
+				case columnNames[ColStage]:
+					colIndices[ColStage] = i
+				case columnNames[ColCoords]:
+					colIndices[ColCoords] = i
+				}
+			}
+			missingColumns := make([]string, 0, len(columnNames))
+			for i := 0; i < len(columnNames); i++ {
+				if colIndices[i] < 0 {
+					missingColumns = append(missingColumns, columnNames[i])
+				}
+			}
+			if len(missingColumns) > 0 {
+				return fmt.Errorf("some columns are missing: %s", strings.Join(missingColumns, ", "))
+			}
+			isHeader = false
 		}
-		coords := strings.Split(rec[COL_COORDS], ",")
+		coords := strings.Split(rec[colIndices[ColCoords]], ",")
 		if len(coords) != 2 {
 			continue
 		}
-		family := rec[COL_SCI_NAME]
+		family := rec[colIndices[ColNameSci]]
 		color, ok := colorsByFamily[family]
 		if !ok {
 			paletteIndex++
@@ -106,7 +137,7 @@ func ToKml(in io.Reader, out io.Writer) error {
 				"<coordinates>%s, %s</coordinates>"+
 				"</Point>"+
 				"</Placemark>",
-			rec[COL_SCI_NAME], paletteIndex, rec[COL_STAGE], rec[COL_CN_NAME], rec[COL_VARIETY], coords[1], coords[0])))
+			rec[colIndices[ColNameSci]], paletteIndex, rec[colIndices[ColStage]], rec[colIndices[ColNameCn]], rec[colIndices[ColVariety]], coords[1], coords[0])))
 	}
 	doc.Write([]byte("</Folder>"))
 	for i := 0; i < len(palette); i++ {
@@ -125,6 +156,9 @@ func ToKml(in io.Reader, out io.Writer) error {
 	doc.Write([]byte(tail))
 	r := bytes.NewReader(flowerIcon)
 	img, _, err := image.Decode(r)
+	if err != nil {
+		return err
+	}
 	for i, c := range palette {
 		imgEntry, err := w.Create(fmt.Sprintf("images/flower-%d.png", i))
 		if err != nil {
