@@ -38,6 +38,37 @@ var palette []color.RGBA = []color.RGBA{
 	{150, 187, 124, 0xff},
 	{250, 213, 134, 0xff},
 	{198, 71, 86, 0xff},
+	{32, 25, 35, 0xff},
+	{255, 255, 255, 0xff},
+	{252, 255, 93, 0xff},
+	{125, 252, 0, 0xff},
+	{14, 196, 52, 0xff},
+	{34, 140, 104, 0xff},
+	{138, 216, 232, 0xff},
+	{35, 91, 84, 0xff},
+	{41, 189, 171, 0xff},
+	{57, 152, 245, 0xff},
+	{55, 41, 79, 0xff},
+	{39, 125, 167, 0xff},
+	{55, 80, 219, 0xff},
+	{242, 32, 32, 0xff},
+	{153, 25, 25, 0xff},
+	{255, 203, 165, 0xff},
+	{230, 143, 102, 0xff},
+	{197, 97, 51, 0xff},
+	{150, 52, 28, 0xff},
+	{99, 40, 25, 0xff},
+	{255, 196, 19, 0xff},
+	{244, 122, 34, 0xff},
+	{47, 42, 160, 0xff},
+	{183, 50, 204, 0xff},
+	{119, 43, 157, 0xff},
+	{240, 124, 171, 0xff},
+	{211, 11, 148, 0xff},
+	{237, 239, 243, 0xff},
+	{195, 165, 180, 0xff},
+	{148, 106, 162, 0xff},
+	{93, 76, 134, 0xff},
 }
 
 type RecoloredImage struct {
@@ -60,6 +91,7 @@ var ErrInvalidCsv = errors.New("the CSV file is invalid")
 
 func ToKml(in io.Reader, out io.Writer, comma rune) error {
 	paletteIndex := 0
+	maxPaletteIndex := 0
 	colorsByFamily := map[string]color.RGBA{}
 	reader := csv.NewReader(in)
 	reader.Comma = comma
@@ -120,11 +152,18 @@ func ToKml(in io.Reader, out io.Writer, comma rune) error {
 		}
 		family := rec[colIndices[ColNameSci]]
 		color, ok := colorsByFamily[family]
-		if !ok {
-			paletteIndex++
-			if paletteIndex >= len(palette) {
-				paletteIndex = 0
+		if ok {
+			for i := range palette {
+				if color == palette[i] {
+					paletteIndex = i
+				}
 			}
+		} else {
+			maxPaletteIndex++
+			if maxPaletteIndex >= len(palette) {
+				maxPaletteIndex = 0
+			}
+			paletteIndex = maxPaletteIndex
 			color = palette[paletteIndex]
 			colorsByFamily[family] = color
 		}
